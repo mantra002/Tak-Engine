@@ -1,6 +1,7 @@
 ﻿using Microsoft.VisualBasic;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -16,12 +17,14 @@ namespace Tak_Engine
         public int[] Stones { get; set; } = new int[2]; // Stone count for each player
         public int[] Capstones { get; set; } = new int[2]; // Capstone count for each player
 
-        public Board() : this(5) // Default size is 5x5
-        {
+        public Board() : this(5) { } // Default size is 5x5
+        public Board(int size) {
+            this.initBoard(size);
         }
 
-        public Board(int size) {
-            if(size < 4 || size > 8)
+        private void initBoard(int size)
+        {
+            if (size < 4 || size > 8)
             {
                 throw new ArgumentOutOfRangeException(nameof(size), "Board sizes of 4x4 to 8x8 are suupported");
             }
@@ -32,7 +35,8 @@ namespace Tak_Engine
             this.Capstones[(int)Types.Player.White] = Rules.GetNumberOfCapstones(size);
             this.Capstones[(int)Types.Player.Black] = Rules.GetNumberOfCapstones(size);
             this.GameBoard = new BoardCell[size * size];
-            for (int i = 0; i< size * size; i++) {
+            for (int i = 0; i < size * size; i++)
+            {
                 this.GameBoard[i] = new BoardCell();
             }
         }
@@ -167,6 +171,75 @@ namespace Tak_Engine
             }
             MoveNumber++;
         }
+        public void SetupBoard(string tps, int boardSize)
+        {
+            this.initBoard(boardSize);
+            tps = tps.Trim(new char[3] { '[', ']', ' ' });
+            if (string.IsNullOrEmpty(tps))
+            {
+                throw new ArgumentException("TPS string cannot be null or empty.", nameof(tps));
+            }
+            string[] parts = tps.Split('"');
+            if (parts[0].Trim() != "TPS")
+            {
+                throw new ArgumentException("TPS string must start with 'TPS'.", nameof(tps));
+            }
+            string[] rows = parts[1].Split('/');
+
+            for(int y = 0; y < rows.Length; y++)
+            {
+                if (string.IsNullOrEmpty(rows[y]))
+                {
+                    throw new ArgumentException("Row cannot be null or empty.", nameof(tps));
+                }
+                string[] cells = rows[y].Split(',');
+                for (int x = 0; x < cells.Length; x++)
+                {
+                    string cell = cells[x].Trim().ToLower();
+                    if (cell.Length == 0)
+                    {
+                        throw new ArgumentException("Cell cannot be empty.", nameof(tps));
+                    }
+                    if (cell[0]=='x')
+                    {
+                        x+= int.Parse(cell.Substring(1))-1;
+                    }
+                    else
+                    {
+                        List<Piece> pieces = new List<Piece>();
+                        for (int i = 0; i < cell.Length; i++)
+                        {
+                            Player player;
+                            Piece piece;
+                            if (cell[i]=='1')
+                            {
+                                player = Types.Player.White;
+                            }
+                            else if (cell[i] == '2')
+                            {
+                                player = Types.Player.Black;
+                            }
+                            if(cell.Length > i+1 && cell[i+1] == 's')
+                            {
+                                piece = new Piece(Types.Piece.Standing, player);
+                                i++;
+                            }
+                            else if (cell.Length > i + 1 && cell[i + 1] == 'c')
+                            {
+                                piece = new Piece(Types.Piece.Capstone, player);
+                                i++;
+                            }
+                            else
+                            {
+                                piece = new Piece(Types.Piece.Flat, player);
+                            }
+                            pieces.Add(piece);
+                        }
+                        this.PlacePieces(x, y, pieces.ToArray());
+                    }
+                }
+            }
+        }   
         public void UnMakeMove(Move move)
         {
             if (move == null)
