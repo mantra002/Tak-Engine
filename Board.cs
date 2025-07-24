@@ -13,15 +13,38 @@ namespace Tak_Engine
         public int MoveNumber { get; set; }
         public int Size { get; set; }
         public BoardCell[] GameBoard;
+        public int[] Stones { get; set; } = new int[2]; // Stone count for each player
+        public int[] Capstones { get; set; } = new int[2]; // Capstone count for each player
+
+        public Board() : this(5) // Default size is 5x5
+        {
+        }
 
         public Board(int size) {
+            if(size < 4 || size > 8)
+            {
+                throw new ArgumentOutOfRangeException(nameof(size), "Board sizes of 4x4 to 8x8 are suupported");
+            }
             this.Size = size;
+            this.MoveNumber = 0;
+            this.Stones[(int)Types.Player.White] = Rules.GetNumberOfStones(size);
+            this.Stones[(int)Types.Player.Black] = Rules.GetNumberOfStones(size);
+            this.Capstones[(int)Types.Player.White] = Rules.GetNumberOfCapstones(size);
+            this.Capstones[(int)Types.Player.Black] = Rules.GetNumberOfCapstones(size);
             this.GameBoard = new BoardCell[size * size];
             for (int i = 0; i< size * size; i++) {
                 this.GameBoard[i] = new BoardCell();
             }
         }
-
+        public BoardCell GetCell(int x, int y)
+        {
+            int index = GetIndex(x, y);
+            if (index < 0 || index >= GameBoard.Length)
+            {
+                throw new ArgumentOutOfRangeException("Coordinates are out of bounds.");
+            }
+            return GameBoard[index];
+        }
         public void PlacePieces(int x, int y, Piece[] pieces)
         {
             if (pieces == null || pieces.Length == 0)
@@ -64,10 +87,34 @@ namespace Tak_Engine
             {
                 throw new ArgumentNullException(nameof(move), "Move cannot be null.");
             }
+            //If the move is a piece move, we just need to add the placed peice to the board.
             if (move.MoveType == Types.Move.Place)
             {
                 PlacePiece(move.StartX, move.StartY, move.Piece.PieceType, move.Piece.Player);
+                if(move.Piece.PieceType == Types.Piece.Capstone)
+                {
+                    if (move.Piece.Player == Types.Player.White)
+                    {
+                        Capstones[(int)Types.Player.White]--;
+                    }
+                    else
+                    {
+                        Capstones[(int)Types.Player.Black]--;
+                    }
+                }
+                else
+                {
+                    if (move.Piece.Player == Types.Player.White)
+                    {
+                        Stones[(int)Types.Player.White]--;
+                    }
+                    else
+                    {
+                        Stones[(int)Types.Player.Black]--;
+                    }
+                }
             }
+            //If we're moving a piece, it could be a stack dropping seveal pieces, or a single piece. 
             else if (move.MoveType == Types.Move.PieceMove)
             {
                 int startIndex = GetIndex(move.StartX, move.StartY);
@@ -81,6 +128,11 @@ namespace Tak_Engine
                 {
                     throw new InvalidOperationException("Mismatch between move piece information and board state.");
                 }
+                if(move.NumberOfDropedPieces.Sum() > 5)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(move.NumberOfDropedPieces), "Cannot drop more than 5 pieces in a single move.");
+                }
+                //Pick up the pieces from the start cell.
                 Piece[] piecesToMove = GameBoard[startIndex].RemovePiece(move.NumberOfDropedPieces.Sum());
                 Types.Direction direction = GetMoveDirection(move);
                 int piecesDropped = 0;
@@ -101,7 +153,7 @@ namespace Tak_Engine
                             piecesDropped += move.NumberOfDropedPieces[i];
                             break;
                         case Types.Direction.Down:
-                            PlacePieces(move.StartX, move.StartY+1, piecesToMove.Skip(piecesDropped).Take(move.NumberOfDropedPieces[i]).ToArray());
+                            PlacePieces(move.StartX, move.StartY+i, piecesToMove.Skip(piecesDropped).Take(move.NumberOfDropedPieces[i]).ToArray());
                             piecesDropped += move.NumberOfDropedPieces[i];
                             break;
                         default:
@@ -124,6 +176,28 @@ namespace Tak_Engine
             if (move.MoveType == Types.Move.Place)
             {
                 RemovePiece(move.StartX, move.StartY);
+                if (move.Piece.PieceType == Types.Piece.Capstone)
+                {
+                    if (move.Piece.Player == Types.Player.White)
+                    {
+                        Capstones[(int)Types.Player.White]++;
+                    }
+                    else
+                    {
+                        Capstones[(int)Types.Player.Black]++;
+                    }
+                }
+                else
+                {
+                    if (move.Piece.Player == Types.Player.White)
+                    {
+                        Stones[(int)Types.Player.White]++;
+                    }
+                    else
+                    {
+                        Stones[(int)Types.Player.Black]++;
+                    }
+                }
             }
             else if (move.MoveType == Types.Move.PieceMove)
             {
@@ -182,8 +256,21 @@ namespace Tak_Engine
             {
                 throw new ArgumentException("Invalid move type.", nameof(move.MoveType));
             }
-            MoveNumber++;
+            MoveNumber--;
         }
+
+        public Types.Player GetCurrentPlayer()
+        {
+            if (MoveNumber % 2 == 0)
+            {
+                return Types.Player.White;
+            }
+            else
+            {
+                return Types.Player.Black;
+            }
+        }
+
         private Types.Direction GetMoveDirection(Move move)
         {
             if (move.StartX - move.EndX > 0)

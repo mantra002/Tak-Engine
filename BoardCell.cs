@@ -10,6 +10,18 @@ namespace Tak_Engine
     {
         private List<Piece> pieces;
 
+        public Piece TopPiece
+        {
+            get
+            {
+                if (IsEmpty())
+                {
+                    throw new InvalidOperationException("Cannot access the top piece of an empty cell.");
+                }
+                return pieces.Last();
+            }
+        }
+
         public BoardCell()
         {
             pieces = new List<Piece>();
