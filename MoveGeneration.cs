@@ -8,6 +8,50 @@ namespace Tak_Engine
 {
     internal static class MoveGeneration
     {
+        private static List<List<int>>[] DropPieceTables;
+
+        static MoveGeneration()
+        {
+            DropPieceTables = new List<List<int>>[5];
+            for (int i = 1; i < 6; i++)
+            {
+                DropPieceTables[i-1] = GenerateUniqueParts(i);
+            }
+        }
+        static public List<List<int>> GenerateUniqueParts(int size)
+        {
+            List<List<int>> table = new List<List<int>>();
+           int[] partition = new int[size];
+
+            int k = 0;
+            partition[0] = size;
+
+            while(true)
+            {
+                table.Add(partition.ToList());
+                int rightMostValue = 0;
+                while(k >= 0 && partition[k] == 1)
+                {
+                    rightMostValue += partition[k];
+                    k--;
+                }
+
+                if (k < 0) return table;
+
+                partition[k]--;
+                rightMostValue++;
+
+                while(rightMostValue > partition[k])
+                {
+                    partition[k + 1] = partition[k];
+                    rightMostValue = rightMostValue - partition[k];
+                    k++;
+                }
+
+                partition[k + 1] = rightMostValue;
+                k++;
+            }
+        }
         public static List<Move> GenerateValidMoves(Board b)
         {
             Types.Player currentPlayer = b.GetCurrentPlayer();

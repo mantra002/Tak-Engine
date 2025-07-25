@@ -55,7 +55,7 @@ namespace Tak_Engine
             {
                 throw new ArgumentException("Pieces cannot be null or empty.", nameof(pieces));
             }
-            foreach (Piece piece in pieces.Reverse())
+            foreach (Piece piece in pieces)
             {
                 PlacePiece(x, y, piece);
             }
@@ -171,6 +171,63 @@ namespace Tak_Engine
             }
             MoveNumber++;
         }
+        public override string ToString()
+        {
+            int consecutiveX;
+            StringBuilder sb = new StringBuilder();
+            sb.Append("[TPS \"");
+            for(int y = 0; y < Size; y++)
+            {
+                consecutiveX = 0;
+                if (y > 0) sb.Append("/");
+                for (int x = 0; x < Size; x++)
+                {
+                    BoardCell cell = GetCell(x, y);
+                    if (cell.IsEmpty())
+                    {
+                        consecutiveX++;
+                        if (x == Size - 1)
+                        {
+                            if (consecutiveX == 1) sb.Append("x");
+                            else sb.Append($"x{consecutiveX}");
+                            if (x < Size -1) sb.Append(",");
+                        }
+                    }
+                    else if (consecutiveX > 0)
+                    {
+                        if (consecutiveX == 1) sb.Append("x");
+                        else sb.Append($"x{consecutiveX}");
+                        if (x < Size - 1) sb.Append(",");
+                        consecutiveX = 0;
+                        x--; // Decrement x to stay on the same cell after appending
+                    }
+                    else
+                    {
+                        List<Piece> pieces = cell.GetPieces().ToList();
+                        for (int i = 0; i < pieces.Count; i++)
+                        {
+                            if (pieces[i].PieceType == Types.Piece.Capstone)
+                            {
+                                sb.Append(pieces[i].Player == Types.Player.White ? "1C" : "2C");
+                            }
+                            else if (pieces[i].PieceType == Types.Piece.Standing)
+                            {
+                                sb.Append(pieces[i].Player == Types.Player.White ? "1S" : "2S");
+                            }
+                            else
+                            {
+                                sb.Append(pieces[i].Player == Types.Player.White ? "1" : "2");
+                            }
+                        }
+                        if (x < Size - 1) sb.Append(",");
+                    }
+                }
+            }
+            int tpsMoveNumber = MoveNumber / 2;
+            int playerMoveNumber = (MoveNumber % 2) + 1;
+            sb.Append($" {playerMoveNumber} {tpsMoveNumber}\"]");
+            return sb.ToString();
+        }
         public void SetupBoard(string tps, int boardSize)
         {
             this.initBoard(boardSize);
@@ -194,9 +251,10 @@ namespace Tak_Engine
 
             int TpsMoveNumber = int.Parse(parts[2]);
             this.MoveNumber = TpsMoveNumber*2 + (int.Parse(parts[1]) - 1);
-
+            int currentX = 0;
             for (int y = 0; y < rows.Length; y++)
             {
+                currentX = 0;
                 if (string.IsNullOrEmpty(rows[y]))
                 {
                     throw new ArgumentException("Row cannot be null or empty.", nameof(tps));
@@ -211,7 +269,7 @@ namespace Tak_Engine
                     }
                     if (cell[0]=='x')
                     {
-                        if (cell.Length > 1) x+= int.Parse(cell.Substring(1))-1;
+                        if (cell.Length > 1) currentX += int.Parse(cell.Substring(1))-1;
                     }
                     else
                     {
@@ -222,7 +280,7 @@ namespace Tak_Engine
                             Piece piece ;
                             if (cell[i]=='2')
                             {
-                                player = Types.Player.White;
+                                player = Types.Player.Black;
                             }
                             if(cell.Length > i+1 && cell[i+1] == 's')
                             {
@@ -240,8 +298,9 @@ namespace Tak_Engine
                             }
                             pieces.Add(piece);
                         }
-                        this.PlacePieces(x, y, pieces.ToArray());
+                        this.PlacePieces(currentX, y, pieces.ToArray());
                     }
+                    currentX += 1;
                 }
             }
         }   
