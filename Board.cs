@@ -184,9 +184,18 @@ namespace Tak_Engine
             {
                 throw new ArgumentException("TPS string must start with 'TPS'.", nameof(tps));
             }
-            string[] rows = parts[1].Split('/');
+           if(parts.Length < 3)
+            {
+                throw new ArgumentException("TPS string must contain at least three parts.", nameof(tps));
+            } 
 
-            for(int y = 0; y < rows.Length; y++)
+            parts = parts[1].Split(' ');
+            string[] rows = parts[0].Split('/');
+
+            int TpsMoveNumber = int.Parse(parts[2]);
+            this.MoveNumber = TpsMoveNumber*2 + (int.Parse(parts[1]) - 1);
+
+            for (int y = 0; y < rows.Length; y++)
             {
                 if (string.IsNullOrEmpty(rows[y]))
                 {
@@ -202,22 +211,18 @@ namespace Tak_Engine
                     }
                     if (cell[0]=='x')
                     {
-                        x+= int.Parse(cell.Substring(1))-1;
+                        if (cell.Length > 1) x+= int.Parse(cell.Substring(1))-1;
                     }
                     else
                     {
                         List<Piece> pieces = new List<Piece>();
                         for (int i = 0; i < cell.Length; i++)
                         {
-                            Player player;
-                            Piece piece;
-                            if (cell[i]=='1')
+                            Player player = Player.White;
+                            Piece piece ;
+                            if (cell[i]=='2')
                             {
                                 player = Types.Player.White;
-                            }
-                            else if (cell[i] == '2')
-                            {
-                                player = Types.Player.Black;
                             }
                             if(cell.Length > i+1 && cell[i+1] == 's')
                             {
