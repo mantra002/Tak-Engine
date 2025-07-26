@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Tak_Engine
+namespace Tak_Engine.Game
 {
     internal class Piece
     {

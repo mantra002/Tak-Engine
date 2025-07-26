@@ -1,0 +1,289 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using static System.Math;
+using System.Runtime.Serialization.Formatters.Binary;
+using System.IO;
+using System.Runtime.Serialization;
+using System.Diagnostics;
+
+// Based on a combination of this https://github.com/SebLague/Chess-AI and https://en.wikipedia.org/wiki/Principal_variation_search 
+
+namespace Tak_Engine.Engine
+{
+    using Tak_Engine.Game;
+
+    internal class Search
+    {
+        private Board _board;
+        public int BestEval;
+        public Move BestMove;
+
+        public bool AbortSearch = false;
+
+        private TranspositionTable _tt;
+
+        private const int _positiveInfinity = 9999999;
+        private const int _negativeInfinity = -_positiveInfinity;
+
+        public Move[] PrincipalVariation;
+        public Move BookMove;
+
+        private bool _inBook = true;
+        private bool _usingTimeControl = false;
+        private Random _random;
+        private Thread timeKeeper;
+
+        private Move _bestMoveSoFar;
+        private int _bestEvalSoFar;
+        private int _mateInPly;
+        private int _moveOutOfBook;
+        private long _predictedTime;
+        private long _timeBank;
+
+        public int numNodes;
+        public int numDeltaCutoffs;
+        public int numCutoffCount;
+        public int numTTHit;
+        public int numSeeCutoff;
+        public int qDepth;
+        public int nodesPerSecond;
+
+        private Stopwatch _stopWatch = new Stopwatch();
+        public SearchSettings SearchSetting;
+
+        public Search(Board b, SearchSettings SearchSetting)
+        { 
+            this.SearchSetting = SearchSetting;
+            _random = new Random();
+            _tt = new TranspositionTable(SearchSetting.TranspositionTableSizeMb);
+            _timeBank = 0;
+        }
+
+        public void StartSearch(Board b, SearchSettings SearchSetting,  bool startingFromStartPos = false)
+        {
+            this.SearchSetting = SearchSetting;
+            AbortSearch = false;
+            this._board = b;
+            numTTHit = numCutoffCount = numNodes = 0;
+
+            BestEval = _bestEvalSoFar = qDepth = 0;
+            BestMove = _bestMoveSoFar = null;
+
+            _inBook = startingFromStartPos;
+            BookMove = null;
+
+            _stopWatch.Restart();
+            if ((SearchSetting.WhiteIncrementInMs != 0 || SearchSetting.BlackIncrementInMs != 0 || SearchSetting.WhiteTimeInMs != 0 || SearchSetting.BlackTimeInMs != 0 || SearchSetting.TimeLimitInMs != 0) && SearchSetting.Depth == 0)
+            {
+                _predictedTime = GetTimeAllowedForSearch();
+                timeKeeper = new Thread(() => this.TimeWatchdog(_predictedTime));
+                timeKeeper.IsBackground = true;
+                timeKeeper.Start();
+                Console.WriteLine("info string estimated time to search: " + _predictedTime + "ms");
+                SearchSetting.InfiniteSearch = true;
+                _usingTimeControl = true;
+
+            }
+
+            int depth = SearchSetting.Depth;
+            if (SearchSetting.InfiniteSearch) depth = 100;
+
+            
+            if (SearchSetting.IterativeDeepeningEnable)
+            {
+                for (int i = 1; i <= depth; i++)
+                {
+                    PrincipalVariation = new Move[i];
+                    DoSearch(i, 0, _negativeInfinity, _positiveInfinity);
+                    nodesPerSecond = (int)(numNodes / (_stopWatch.ElapsedMilliseconds / 1000.0));
+                    if (!AbortSearch)
+                    {
+                        BestMove = _bestMoveSoFar;
+                        BestEval = _bestEvalSoFar;
+                    }
+                    PrintSearchStats(i);
+
+                    if (_mateInPly != -1 && i > 10) break;
+                }
+                if(timeKeeper != null) timeKeeper.Abort();
+            }
+            else
+            {
+                DoSearch(depth, 0, _negativeInfinity, _positiveInfinity);
+                BestMove = _bestMoveSoFar;
+                BestEval = _bestEvalSoFar;
+                nodesPerSecond = Math.Max(0,(int)(numNodes / (_stopWatch.ElapsedMilliseconds / 1000.0)));
+                PrintSearchStats(SearchSetting.Depth);
+            }
+            _stopWatch.Stop();
+            if (_usingTimeControl)
+            {
+                _timeBank += (int)(_predictedTime - _stopWatch.ElapsedMilliseconds);
+                Console.WriteLine($"info string banking: { _timeBank }ms");
+            }
+            if (BookMove != null) BestMove = BookMove;
+            if(BestMove != null) Console.Write("bestmove " + BestMove.ToString());
+            if (PrincipalVariation != null)
+            {
+                if (BookMove != null && PrincipalVariation[0] != null) Console.Write(" ponder " + PrincipalVariation[0]);
+                else if (PrincipalVariation.Count() >= 2 && PrincipalVariation[1] != null)
+                {
+                    Console.Write(" ponder " + PrincipalVariation[1]);
+                }
+            }
+
+            Console.WriteLine();
+        }
+        private void TimeWatchdog(long timeAllowed)
+        {
+            while(timeAllowed > _stopWatch.ElapsedMilliseconds)
+            {
+                Thread.Sleep(200);
+            }
+            this.AbortSearch = true;
+            Console.WriteLine($"info string search aborted for time {timeAllowed} / {_stopWatch.ElapsedMilliseconds}");
+        }
+        private long GetTimeAllowedForSearch()
+        {
+            int movesRemaining = (SearchSetting.MovesToGoUntilAdditionalTime != 0) ? SearchSetting.MovesToGoUntilAdditionalTime : SearchSetting.AssumedGameLength - _board.MoveNumber; 
+            if (SearchSetting.TimeLimitInMs != 0) return SearchSetting.TimeLimitInMs;
+            if(_board.GetCurrentPlayer() == Types.Player.White)
+            {
+                return Math.Max((long)(SearchSetting.WhiteIncrementInMs * 0.8 + SearchSetting.WhiteTimeInMs / (double)movesRemaining) + _timeBank, 250); 
+            }
+            else return Math.Max((long)(SearchSetting.BlackIncrementInMs * 0.8 + SearchSetting.BlackTimeInMs / (double)movesRemaining) + _timeBank, 250);
+        }
+
+        private int EstimateDepthFromTime(long timeInMs)
+        {
+            double depth = 0.8426 * Math.Log(timeInMs) - 0.6893;
+            return Math.Max(4,(int)Math.Floor(depth));
+        }
+        public void PrintSearchStats(int depth)
+        {
+            int realDepth = depth;
+            if (AbortSearch) return;
+            StringBuilder sb = new StringBuilder();
+            sb.Append("info ");
+            sb.Append($"depth {realDepth} ");
+            sb.Append($"seldepth {qDepth} ");
+            sb.Append($"nodes {numNodes} ");
+            sb.Append($"nps {nodesPerSecond} ");
+            sb.Append($"time {_stopWatch.ElapsedMilliseconds} ");
+            sb.Append($"hashfull {Math.Min(1000,(int)(_tt.PercentFull * 1000))} ");
+            if (_mateInPly == -1)
+            {
+                sb.Append($"score cp {BestEval} ");
+            }
+            else
+            {
+                sb.Append($"score mate {_mateInPly * Math.Sign(BestEval)} ");
+            }
+            sb.Append(" pv ");
+
+            if (PrincipalVariation != null)
+            {
+                for (int i = 0; i < depth; i++)
+                {
+                    if (PrincipalVariation[i] != null) sb.Append(PrincipalVariation[i].ToString() + " ");
+                }
+            }
+            Console.WriteLine(sb.ToString());
+        }
+        public void ClearTT()
+        {
+            this._tt.ClearTable();
+        }
+        private int DoSearch(int depth, byte plyFromRoot, int alpha, int beta)
+        {
+            int eval;
+            if (AbortSearch) return 0;
+
+            TranspositionTable.Position p = _tt.LookupPosition(_board.Hash);
+            if (p != null && p.HashKey == _board.Hash)
+            {
+                if (p.Depth >= depth)
+                {
+                    //Can use the move in the hash here to order earlier later on.
+                    numTTHit++;
+                    switch (p.NType)
+                    {
+                        case TranspositionTable.NodeType.Exact:
+
+                            if (plyFromRoot == 0)
+                            {
+                                _bestMoveSoFar = p.MovePlayed;
+                                _bestEvalSoFar = p.Score;
+                                PrincipalVariation[plyFromRoot] = _bestMoveSoFar;
+                            }
+                            return p.Score;
+                        case TranspositionTable.NodeType.Beta:
+                            if (p.Score >= alpha) alpha = p.Score;
+                            break;
+                        case TranspositionTable.NodeType.Alpha:
+                            if (p.Score <= beta) beta = p.Score;
+                            break;
+                        default:
+                            throw new Exception("Invalid transposition position node type.");
+                    }
+                    if (alpha >= beta)
+                    {
+                        return p.Score;
+                    }
+                }
+            }
+
+            if (depth == 0)
+            {
+                return Evaluation.Evaluate(_board);
+            }
+
+            List<Move> moves = MoveGeneration.GenerateValidMoves(_board);
+            if (SearchSetting.UseMoveOrdering) MoveOrdering.OrderMoves(_board, _tt, moves);
+
+            //TODO: Need to check if the players are out of tokens and score the position accordingly.
+
+            TranspositionTable.NodeType nodeType = TranspositionTable.NodeType.Alpha;
+
+            Move bestMoveInThisPosition = null;
+
+            for (int i = 0; i < moves.Count; i++)
+            {
+                    _board.MakeMove(moves[i]);
+                    eval = -DoSearch(depth - 1, (byte)(plyFromRoot + 1), -(alpha + 1), -alpha);
+                    if (alpha < eval && eval < beta) eval = -DoSearch(depth - 1, (byte)(plyFromRoot + 1), -beta, -alpha);
+                    _board.UnMakeMove();
+                    numNodes++;
+
+                    // Beta cutoff
+                    if (eval >= beta)
+                    {
+                        _tt.AddPosition(_board.Hash, beta, moves[i], (byte)depth, (byte)plyFromRoot, TranspositionTable.NodeType.Beta);
+                        numCutoffCount++;
+                        return beta;
+                    }
+
+                    // New best move
+                    if (eval > alpha)
+                    {
+                        bestMoveInThisPosition = moves[i];
+                        PrincipalVariation[plyFromRoot] = moves[i];
+                        nodeType = TranspositionTable.NodeType.Exact;
+                        alpha = eval;
+                        if (plyFromRoot == 0)
+                        {
+                            _bestMoveSoFar = moves[i];
+                            _bestEvalSoFar = eval;
+                        }
+                    }
+                }
+            _tt.AddPosition(_board.Hash, alpha, bestMoveInThisPosition, (byte)depth, (byte)plyFromRoot, nodeType);
+            return alpha;
+
+        }
+    }
+}

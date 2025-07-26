@@ -5,21 +5,39 @@ using System.Data;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using static Tak_Engine.Types;
+using static Tak_Engine.Game.Types;
 
-namespace Tak_Engine
+namespace Tak_Engine.Game
 {
     internal class Board
     {
         public int MoveNumber { get; set; }
         public int Size { get; set; }
         public BoardCell[] GameBoard;
+        public Stack<Move> MoveStack;
+        public ulong[] RoadBitboard { get { return CalculateBitboards(); } }
+        public int[] SquareCounts { get { return CalculateSquareCounts(); } } // Square count for each player
         public int[] Stones { get; set; } = new int[2]; // Stone count for each player
         public int[] Capstones { get; set; } = new int[2]; // Capstone count for each player
-
+        public Types.GameOver GameOverStatus { get; set; } = Types.GameOver.NotOver;
+        public bool InTak
+        {
+            get
+            {
+                // Check if any player has a Tak
+                return false;
+            }
+        }
+        public ulong Hash
+        {
+            get {
+                return CalculateHash();
+            }
+            
+        }
         public Board() : this(5) { } // Default size is 5x5
         public Board(int size) {
-            this.initBoard(size);
+            initBoard(size);
         }
 
         private void initBoard(int size)
@@ -28,16 +46,18 @@ namespace Tak_Engine
             {
                 throw new ArgumentOutOfRangeException(nameof(size), "Board sizes of 4x4 to 8x8 are suupported");
             }
-            this.Size = size;
-            this.MoveNumber = 0;
-            this.Stones[(int)Types.Player.White] = Rules.GetNumberOfStones(size);
-            this.Stones[(int)Types.Player.Black] = Rules.GetNumberOfStones(size);
-            this.Capstones[(int)Types.Player.White] = Rules.GetNumberOfCapstones(size);
-            this.Capstones[(int)Types.Player.Black] = Rules.GetNumberOfCapstones(size);
-            this.GameBoard = new BoardCell[size * size];
+            Size = size;
+            MoveNumber = 0;
+            Stones[(int)Player.White] = Rules.GetNumberOfStones(size);
+            Stones[(int)Player.Black] = Rules.GetNumberOfStones(size);
+            Capstones[(int)Player.White] = Rules.GetNumberOfCapstones(size);
+            Capstones[(int)Player.Black] = Rules.GetNumberOfCapstones(size);
+            GameBoard = new BoardCell[size * size];
+            MoveStack = new Stack<Move>();
+            GameOverStatus = Types.GameOver.NotOver;
             for (int i = 0; i < size * size; i++)
             {
-                this.GameBoard[i] = new BoardCell();
+                GameBoard[i] = new BoardCell();
             }
         }
         public BoardCell GetCell(int x, int y)
@@ -48,6 +68,74 @@ namespace Tak_Engine
                 throw new ArgumentOutOfRangeException("Coordinates are out of bounds.");
             }
             return GameBoard[index];
+        }
+        private ulong[] CalculateBitboards()
+        {
+            ulong[] bitboards = new ulong[2]; // 0 for White, 1 for Black
+            for (int y = 0; y < Size; y++)
+            {
+                for (int x = 0; x < Size; x++)
+                {
+                    int index = GetIndex(x, y);
+                    if (!GameBoard[index].IsEmpty())
+                    {
+                        if (GameBoard[index].TopPiece.Player == Player.White)
+                        {
+                            bitboards[(int)Player.White] |= (1UL << (x + y * Size));
+                        }
+                        else
+                        {
+                            bitboards[(int)Player.Black] |= (1UL << (x + y * Size));
+                        }
+                    }
+                }
+            }
+            return bitboards;
+        }
+        private int[] CalculateSquareCounts()
+        {
+            int[] squareCounts = new int[2]; // 0 for White, 1 for Black
+            for (int y = 0; y < Size; y++)
+            {
+                for (int x = 0; x < Size; x++)
+                {
+                    int index = GetIndex(x, y);
+                    if (!GameBoard[index].IsEmpty())
+                    {
+                        Piece piece = GameBoard[index].TopPiece;
+
+                        if (piece.Player == Player.White)
+                        {
+                            squareCounts[(int)Player.White]++;
+                        }
+                        else
+                        {
+                            squareCounts[(int)Player.Black]++;
+                        }
+                        
+                    }
+                }
+            }
+            return squareCounts;
+        }
+        private ulong CalculateHash()
+        {
+            ulong hash = 0;
+            for (int y = 0; y < Size; y++)
+            {
+                for (int x = 0; x < Size; x++)
+                {
+                    int index = GetIndex(x, y);
+                    if (!GameBoard[index].IsEmpty())
+                    {
+                        foreach (Piece piece in GameBoard[index].GetPieces())
+                        {
+                            hash ^= (ulong)(piece.PieceType.GetHashCode() + piece.Player.GetHashCode() + (x * Size + y));
+                        }
+                    }
+                }
+            }
+            return hash;
         }
         public void PlacePieces(int x, int y, Piece[] pieces)
         {
@@ -60,7 +148,7 @@ namespace Tak_Engine
                 PlacePiece(x, y, piece);
             }
         }
-        public void PlacePiece(int x, int y, Types.Piece cellType, Types.Player player)
+        public void PlacePiece(int x, int y, Types.Piece cellType, Player player)
         {
             Piece p = new Piece(cellType, player);
             PlacePiece(x, y, p);
@@ -84,7 +172,41 @@ namespace Tak_Engine
             }
             return GameBoard[index].RemovePiece(numberOfPieces);
         }
-
+        public Types.GameOver GameOver()
+        {
+            // Check if any player has a Road
+            if(MoveGeneration.HasValidRoad(RoadBitboard[(int)GetCurrentPlayer()], Size))
+            {
+                if(GetCurrentPlayer() == Player.White)
+                {
+                    return Types.GameOver.WhiteRoad; // White has a road
+                }
+                else
+                {
+                    return Types.GameOver.BlackRoad; // Black has a road
+                } 
+            }
+            // Check if all pieces are placed
+            if (Stones[(int)Player.White] == 0 && Stones[(int)Player.Black] == 0 &&
+                Capstones[(int)Player.White] == 0 && Capstones[(int)Player.Black] == 0)
+            {
+                int score = SquareCounts[0] - SquareCounts[1]; 
+                if (score > 0)
+                {
+                    return Types.GameOver.WhiteStones; // White has more squares
+                }
+                else if (score < 0)
+                {
+                    return Types.GameOver.BlackStones; // Black has more squares
+                }
+                else
+                {
+                    return Types.GameOver.Tie; // Tie
+                }
+            }
+            return Types.GameOver.NotOver;
+        }
+      
         public void MakeMove(Move move)
         {
             if (move == null)
@@ -97,24 +219,24 @@ namespace Tak_Engine
                 PlacePiece(move.StartX, move.StartY, move.Piece.PieceType, move.Piece.Player);
                 if(move.Piece.PieceType == Types.Piece.Capstone)
                 {
-                    if (move.Piece.Player == Types.Player.White)
+                    if (move.Piece.Player == Player.White)
                     {
-                        Capstones[(int)Types.Player.White]--;
+                        Capstones[(int)Player.White]--;
                     }
                     else
                     {
-                        Capstones[(int)Types.Player.Black]--;
+                        Capstones[(int)Player.Black]--;
                     }
                 }
                 else
                 {
-                    if (move.Piece.Player == Types.Player.White)
+                    if (move.Piece.Player == Player.White)
                     {
-                        Stones[(int)Types.Player.White]--;
+                        Stones[(int)Player.White]--;
                     }
                     else
                     {
-                        Stones[(int)Types.Player.Black]--;
+                        Stones[(int)Player.Black]--;
                     }
                 }
             }
@@ -138,25 +260,25 @@ namespace Tak_Engine
                 }
                 //Pick up the pieces from the start cell.
                 Piece[] piecesToMove = GameBoard[startIndex].RemovePiece(move.NumberOfDropedPieces.Sum());
-                Types.Direction direction = GetMoveDirection(move);
+                Direction direction = GetMoveDirection(move);
                 int piecesDropped = 0;
                 for(int i = 0; i < move.NumberOfDropedPieces.Count; i++)
                 {
                     switch (direction)
                     {
-                        case Types.Direction.Left:
+                        case Direction.Left:
                             PlacePieces(move.StartX-i, move.StartY, piecesToMove.Skip(piecesDropped).Take(move.NumberOfDropedPieces[i]).ToArray());
                             piecesDropped += move.NumberOfDropedPieces[i];
                             break;
-                        case Types.Direction.Right:
+                        case Direction.Right:
                             PlacePieces(move.StartX + i, move.StartY, piecesToMove.Skip(piecesDropped).Take(move.NumberOfDropedPieces[i]).ToArray());
                             piecesDropped += move.NumberOfDropedPieces[i];
                             break;
-                        case Types.Direction.Up:
+                        case Direction.Up:
                             PlacePieces(move.StartX, move.StartY-i, piecesToMove.Skip(piecesDropped).Take(move.NumberOfDropedPieces[i]).ToArray());
                             piecesDropped += move.NumberOfDropedPieces[i];
                             break;
-                        case Types.Direction.Down:
+                        case Direction.Down:
                             PlacePieces(move.StartX, move.StartY+i, piecesToMove.Skip(piecesDropped).Take(move.NumberOfDropedPieces[i]).ToArray());
                             piecesDropped += move.NumberOfDropedPieces[i];
                             break;
@@ -169,7 +291,9 @@ namespace Tak_Engine
             {
                 throw new ArgumentException("Invalid move type.", nameof(move.MoveType));
             }
+            MoveStack.Push(move);
             MoveNumber++;
+            GameOverStatus = GameOver();
         }
         public override string ToString()
         {
@@ -208,15 +332,15 @@ namespace Tak_Engine
                         {
                             if (pieces[i].PieceType == Types.Piece.Capstone)
                             {
-                                sb.Append(pieces[i].Player == Types.Player.White ? "1C" : "2C");
+                                sb.Append(pieces[i].Player == Player.White ? "1C" : "2C");
                             }
                             else if (pieces[i].PieceType == Types.Piece.Standing)
                             {
-                                sb.Append(pieces[i].Player == Types.Player.White ? "1S" : "2S");
+                                sb.Append(pieces[i].Player == Player.White ? "1S" : "2S");
                             }
                             else
                             {
-                                sb.Append(pieces[i].Player == Types.Player.White ? "1" : "2");
+                                sb.Append(pieces[i].Player == Player.White ? "1" : "2");
                             }
                         }
                         if (x < Size - 1) sb.Append(",");
@@ -224,13 +348,13 @@ namespace Tak_Engine
                 }
             }
             int tpsMoveNumber = MoveNumber / 2;
-            int playerMoveNumber = (MoveNumber % 2) + 1;
+            int playerMoveNumber = MoveNumber % 2 + 1;
             sb.Append($" {playerMoveNumber} {tpsMoveNumber}\"]");
             return sb.ToString();
         }
         public void SetupBoard(string tps, int boardSize)
         {
-            this.initBoard(boardSize);
+            initBoard(boardSize);
             tps = tps.Trim(new char[3] { '[', ']', ' ' });
             if (string.IsNullOrEmpty(tps))
             {
@@ -250,7 +374,7 @@ namespace Tak_Engine
             string[] rows = parts[0].Split('/');
 
             int TpsMoveNumber = int.Parse(parts[2]);
-            this.MoveNumber = TpsMoveNumber*2 + (int.Parse(parts[1]) - 1);
+            MoveNumber = TpsMoveNumber*2 + (int.Parse(parts[1]) - 1);
             int currentX = 0;
             for (int y = 0; y < rows.Length; y++)
             {
@@ -280,7 +404,7 @@ namespace Tak_Engine
                             Piece piece ;
                             if (cell[i]=='2')
                             {
-                                player = Types.Player.Black;
+                                player = Player.Black;
                             }
                             if(cell.Length > i+1 && cell[i+1] == 's')
                             {
@@ -298,14 +422,15 @@ namespace Tak_Engine
                             }
                             pieces.Add(piece);
                         }
-                        this.PlacePieces(currentX, y, pieces.ToArray());
+                        PlacePieces(currentX, y, pieces.ToArray());
                     }
                     currentX += 1;
                 }
             }
         }   
-        public void UnMakeMove(Move move)
+        public void UnMakeMove()
         {
+            Move move = MoveStack.Pop();
             if (move == null)
             {
                 throw new ArgumentNullException(nameof(move), "Move cannot be null.");
@@ -315,24 +440,24 @@ namespace Tak_Engine
                 RemovePiece(move.StartX, move.StartY);
                 if (move.Piece.PieceType == Types.Piece.Capstone)
                 {
-                    if (move.Piece.Player == Types.Player.White)
+                    if (move.Piece.Player == Player.White)
                     {
-                        Capstones[(int)Types.Player.White]++;
+                        Capstones[(int)Player.White]++;
                     }
                     else
                     {
-                        Capstones[(int)Types.Player.Black]++;
+                        Capstones[(int)Player.Black]++;
                     }
                 }
                 else
                 {
-                    if (move.Piece.Player == Types.Player.White)
+                    if (move.Piece.Player == Player.White)
                     {
-                        Stones[(int)Types.Player.White]++;
+                        Stones[(int)Player.White]++;
                     }
                     else
                     {
-                        Stones[(int)Types.Player.Black]++;
+                        Stones[(int)Player.Black]++;
                     }
                 }
             }
@@ -349,31 +474,31 @@ namespace Tak_Engine
                 {
                     throw new InvalidOperationException("Mismatch between move piece information and board state.");
                 }
-                Types.Direction direction = GetMoveDirection(move);
+                Direction direction = GetMoveDirection(move);
                 List<Piece> pieceStack = new List<Piece>();
                 for (int i = move.NumberOfDropedPieces.Count-1; i > 0 ; i--)
                 {
                     switch (direction)
                     {
-                        case Types.Direction.Left:
+                        case Direction.Left:
                             foreach (Piece p in RemovePieces(move.EndX + i, move.StartY, move.NumberOfDropedPieces[i]))
                             {
                                 pieceStack.Add(p);
                             }
                             break;
-                        case Types.Direction.Right:
+                        case Direction.Right:
                             foreach (Piece p in RemovePieces(move.EndX - i, move.StartY, move.NumberOfDropedPieces[i]))
                             {
                                 pieceStack.Add(p);
                             }
                             break;
-                        case Types.Direction.Up:
+                        case Direction.Up:
                             foreach (Piece p in RemovePieces(move.StartX, move.EndY+i, move.NumberOfDropedPieces[i]))
                             {
                                 pieceStack.Add(p);
                             }
                             break;
-                        case Types.Direction.Down:
+                        case Direction.Down:
                             foreach (Piece p in RemovePieces(move.StartX, move.EndY-i, move.NumberOfDropedPieces[i]))
                             {
                                 pieceStack.Add(p);
@@ -394,37 +519,38 @@ namespace Tak_Engine
                 throw new ArgumentException("Invalid move type.", nameof(move.MoveType));
             }
             MoveNumber--;
+            GameOverStatus = Types.GameOver.NotOver;
         }
 
-        public Types.Player GetCurrentPlayer()
+        public Player GetCurrentPlayer()
         {
             if (MoveNumber % 2 == 0)
             {
-                return Types.Player.White;
+                return Player.White;
             }
             else
             {
-                return Types.Player.Black;
+                return Player.Black;
             }
         }
 
-        private Types.Direction GetMoveDirection(Move move)
+        private Direction GetMoveDirection(Move move)
         {
             if (move.StartX - move.EndX > 0)
             {
-                return Types.Direction.Left;
+                return Direction.Left;
             }
             else if (move.StartX - move.EndX < 0)
             {
-                return Types.Direction.Right;
+                return Direction.Right;
             }
             else if (move.StartY - move.EndY > 0)
             {
-                return Types.Direction.Up;
+                return Direction.Up;
             }
             else if (move.StartY - move.EndY < 0)
             {
-                return Types.Direction.Down;
+                return Direction.Down;
             }
             else
             {

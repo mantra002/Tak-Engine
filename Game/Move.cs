@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Tak_Engine
+namespace Tak_Engine.Game
 {
     internal class Move
     {
@@ -51,6 +51,17 @@ namespace Tak_Engine
         public Move(Types.Move moveType, Piece piece, int startX, int startY, int endX, int endY, List<int> numberOfDroppedPieces) : this(moveType, piece, startX, startY, endX, endY)
         {
             NumberOfDropedPieces = numberOfDroppedPieces ?? throw new ArgumentNullException(nameof(numberOfDroppedPieces), "Number of dropped pieces cannot be null.");
+        }
+
+        public override string ToString()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append($"Move Type: {MoveType}, Piece: {Piece}, Start: ({StartX}, {StartY}), End: ({EndX}, {EndY})");
+            if (NumberOfDropedPieces.Count > 0)
+            {
+                sb.Append($", Dropped Pieces: [{string.Join(", ", NumberOfDropedPieces)}]");
+            }
+            return sb.ToString();
         }
     }
 }

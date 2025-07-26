@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Tak_Engine
+namespace Tak_Engine.Game
 {
     internal static class Types
     {
@@ -30,6 +30,15 @@ namespace Tak_Engine
             Down,
             Left,
             Right
+        }
+        public enum GameOver
+        {
+            NotOver,
+            WhiteRoad,
+            BlackRoad,
+            WhiteStones,
+            BlackStones,
+            Tie
         }
     }
 }
