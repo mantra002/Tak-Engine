@@ -173,12 +173,22 @@ namespace Tak_Engine.Game
                                         {
                                             validMoves.Add(new Move(Types.Move.PieceMove, topPiece, x, y, x + 1 + i, y, DropPieceTables[i][j]));
                                         }
+                                        else if(bc.TopPiece.PieceType == Types.Piece.Standing && topPiece.PieceType == Types.Piece.Capstone)
+                                        {
+                                            // If the top piece is a capstone, it can mover over a wall 
+                                            validMoves.Add(new Move(Types.Move.PieceMove, topPiece, x, y, x + 1 + i, y, DropPieceTables[i][j]));
+                                        }
                                     }
                                     if (x - 1 - i > 0)
                                     {
                                         bc = b.GetCell(x - 1 - i, y);
                                         if (bc.IsEmpty() || bc.TopPiece.PieceType == Types.Piece.Flat)
                                         {
+                                            validMoves.Add(new Move(Types.Move.PieceMove, topPiece, x, y, x - 1 - i, y, DropPieceTables[i][j]));
+                                        }
+                                        else if (bc.TopPiece.PieceType == Types.Piece.Standing && topPiece.PieceType == Types.Piece.Capstone)
+                                        {
+                                            // If the top piece is a capstone, it can mover over a wall 
                                             validMoves.Add(new Move(Types.Move.PieceMove, topPiece, x, y, x - 1 - i, y, DropPieceTables[i][j]));
                                         }
                                     }
@@ -189,12 +199,22 @@ namespace Tak_Engine.Game
                                         {
                                             validMoves.Add(new Move(Types.Move.PieceMove, topPiece, x, y, x, y + 1 + i, DropPieceTables[i][j]));
                                         }
+                                        else if (bc.TopPiece.PieceType == Types.Piece.Standing && topPiece.PieceType == Types.Piece.Capstone)
+                                        {
+                                            // If the top piece is a capstone, it can mover over a wall 
+                                            validMoves.Add(new Move(Types.Move.PieceMove, topPiece, x, y, x, y + 1 + i, DropPieceTables[i][j]));
+                                        }
                                     }
                                     if (y - 1 - i > 0)
                                     {
                                         bc = b.GetCell(x, y - 1 - i);
                                         if (bc.IsEmpty() || bc.TopPiece.PieceType == Types.Piece.Flat)
                                         {
+                                            validMoves.Add(new Move(Types.Move.PieceMove, topPiece, x, y, x, y - 1 - i, DropPieceTables[i][j]));
+                                        }
+                                        else if (bc.TopPiece.PieceType == Types.Piece.Standing && topPiece.PieceType == Types.Piece.Capstone)
+                                        {
+                                            // If the top piece is a capstone, it can mover over a wall 
                                             validMoves.Add(new Move(Types.Move.PieceMove, topPiece, x, y, x, y - 1 - i, DropPieceTables[i][j]));
                                         }
                                     }
